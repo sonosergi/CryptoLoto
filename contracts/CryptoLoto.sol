@@ -11,9 +11,18 @@ contract Bitconaire is VRFConsumerBase {
     mapping(address => uint8[7]) public bets;
     mapping(address => bool) public hasClaimedPrize;
 
+    enum LOTTERY_STATE {
+        OPEN,
+        CLOSED,
+        CALCULATING_WINNER
+    }
+    LOTTERY_STATE public lottery_state;
+
     VRFCoordinatorV2Interface private vrfCoordinator;
     bytes32 internal keyHash;
     uint256 internal fee;
+    event RequestedRandomness(bytes32 requestId);
+
 
     constructor(address _vrfCoordinator, address _linkToken, bytes32 _keyHash, uint256 _fee) VRFConsumerBase(_vrfCoordinator, _linkToken) {
         owner = msg.sender;
@@ -27,16 +36,36 @@ contract Bitconaire is VRFConsumerBase {
         _;
     }
 
+    function startLottery() public onlyOwner {
+        require(
+            lottery_state == LOTTERY_STATE.CLOSED,
+            "Can't start a new lottery yet!"
+        );
+        lottery_state = LOTTERY_STATE.OPEN;
+    }
+
+    function endLottery() public onlyOwner {
+        lottery_state = LOTTERY_STATE.CALCULATING_WINNER;
+        bytes32 requestId = requestRandomness(keyHash, fee);
+        emit RequestedRandomness(requestId);
+    }
+
     function registerBet(uint8[7] memory numbers) public payable {
         require(numbers.length == 7, "You must choose exactly 7 numbers");
         require(msg.value > 0, "You must send a bet amount");
-
-        for (uint8 i = 0; i < 7; i++) {
-            require(numbers[i] >= 0 && numbers[i] <= 69, "Numbers must be between 0 and 69");
-        }
+        require(numbersInRange(numbers), "Numbers must be between 0 and 69");
 
         bets[msg.sender] = numbers;
         players.push(payable(msg.sender));
+    }
+
+    function numbersInRange(uint8[7] memory numbers) internal pure returns (bool) {
+        for (uint8 i = 0; i < 7; i++) {
+            if (numbers[i] < 0 || numbers[i] > 69) {
+                return false;
+            }
+        }
+        return true;
     }
 
     function generateRandomNumbers() public onlyOwner {
@@ -44,34 +73,22 @@ contract Bitconaire is VRFConsumerBase {
         requestRandomness(keyHash, fee);
     }
 
-    function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
+    function fulfillRandomness(bytes32 /* requestId */, uint256 randomness) internal override {
         require(msg.sender == address(vrfCoordinator), "Fulfillment only allowed from Coordinator");
-        randomNumbers = [
-            uint8(randomness % 70),
-            uint8((randomness >> 8) % 70),
-            uint8((randomness >> 16) % 70),
-            uint8((randomness >> 24) % 70),
-            uint8((randomness >> 32) % 70),
-            uint8((randomness >> 40) % 70),
-            uint8((randomness >> 48) % 70)
-        ];
+        randomNumbers = generateRandomArray(randomness);
     }
 
-    function calculateWinners() public onlyOwner {
+    function generateRandomArray(uint256 randomness) internal pure returns (uint8[7] memory) {
+        uint8[7] memory randomArray;
+        for (uint8 i = 0; i < 7; i++) {
+            randomArray[i] = uint8((randomness >> (i * 8)) % 70);
+        }
+        return randomArray;
+    }
+
+    function calculateWinners() public view onlyOwner {
         uint256 totalBalance = address(this).balance;
         require(totalBalance > 0, "No balance to distribute");
-
-        // Calculate prize amounts
-        uint256 totalPrize = (totalBalance * 81) / 100;
-        uint256 adminFee = (totalBalance * 13) / 100;
-        uint256 reserveAmount = (totalBalance * 6) / 100;
-
-        // Calculate prize distribution for each category
-        uint256 botePrize = (totalPrize * 34) / 100;
-        uint256 secondPrize6 = (totalPrize * 21) / 100;
-        uint256 thirdPrize5 = (totalPrize * 13) / 100;
-        uint256 fourthPrize4 = (totalPrize * 8) / 100;
-        uint256 fifthPrize3 = (totalPrize * 5) / 100;
 
         // Identify winners and distribute prizes
         address[] memory winners7;
@@ -84,17 +101,11 @@ contract Bitconaire is VRFConsumerBase {
             uint8[7] memory playerNumbers = bets[players[i]];
             uint8 matches = countMatches(playerNumbers, randomNumbers);
 
-            if (matches == 7) {
-                winners7 = appendToArray(winners7, players[i]);
-            } else if (matches == 6) {
-                winners6 = appendToArray(winners6, players[i]);
-            } else if (matches == 5) {
-                winners5 = appendToArray(winners5, players[i]);
-            } else if (matches == 4) {
-                winners4 = appendToArray(winners4, players[i]);
-            } else if (matches == 3) {
-                winners3 = appendToArray(winners3, players[i]);
-            }
+            if (matches == 7) winners7 = appendToArray(winners7, players[i]);
+            else if (matches == 6) winners6 = appendToArray(winners6, players[i]);
+            else if (matches == 5) winners5 = appendToArray(winners5, players[i]);
+            else if (matches == 4) winners4 = appendToArray(winners4, players[i]);
+            else if (matches == 3) winners3 = appendToArray(winners3, players[i]);
         }
  
     }

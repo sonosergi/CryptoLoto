@@ -1,5 +1,3 @@
-# Reglas del Sorteo CryptoLoto
-
 ## Descripción
 CryptoLoto es un sorteo descentralizado en el que los participantes tienen la oportunidad de ganar un premio acumulado en Ether al elegir una combinación de números.
 
